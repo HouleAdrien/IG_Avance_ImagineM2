@@ -169,18 +169,16 @@ bool save( const std::string & filename , std::vector< Vec3 > & vertices , std::
 
 
 
-std::pair<Vec3, Vec3> projectOnPlane(Vec3 point_to_project, Vec3 centroid, Vec3 normal){
-    std::pair<Vec3, Vec3> new_pos_norm;
+Vec3 projectOnPlane(Vec3 point_to_project, Vec3 centroid, Vec3 normal){
+
 
     Vec3 dc = point_to_project - centroid;
     float dot = Vec3::dot(dc,normal);
 
     Vec3 result = point_to_project - (dot * normal);
 
-    new_pos_norm.first = result;
-    new_pos_norm.second = normal;
 
-    return new_pos_norm;
+    return result;
 }
 
 void HPSS(Vec3 inputPoint, 
@@ -188,15 +186,26 @@ void HPSS(Vec3 inputPoint,
     std::vector<Vec3> const & positions, std::vector<Vec3> const & normals, BasicANNkdTree const & kdtree,
     int kernel_type, float radius, unsigned int nbIterations = 10, unsigned int knn = 20)
 {
-    for(int i = 0; i < nbIterations; ++i)
-    {
+    
         ANNidxArray nearest_ids = new ANNidx[knn];
         ANNdistArray nearest_distances = new ANNdist[knn];
         kdtree.knearest(inputPoint,knn,nearest_ids,nearest_distances);
 
-          int al = sizeof(nearest_ids)/sizeof(nearest_ids[0]); 
-       std::cout << al << std::endl;
-    }
+        Vec3 centroid = Vec3(0,0,0);
+        Vec3 normalCent = Vec3(0,0,0);
+
+        for(int j=0 ; j< knn ; j++){
+            centroid += positions[nearest_ids[j]];
+            normalCent += normals[nearest_ids[j]];
+        }
+
+        centroid = centroid / knn;
+        outputNormal = normalCent /knn;
+
+        outputPoint= projectOnPlane(inputPoint,centroid,outputNormal);
+
+          
+    
 }
 
 
@@ -415,7 +424,7 @@ int main (int argc, char ** argv) {
             Vec3 outputPoint;
             Vec3 outputNormal;
 
-            HPSS( positions2[pIt] , outputPoint , outputNormal ,   positions2 , normals2 , kdtree ,1, 5 );
+            HPSS( positions2[pIt] , outputPoint , outputNormal ,   positions , normals , kdtree ,1, 5 );
 
             positions2[pIt] =outputPoint;
             normals2[pIt] =outputNormal;
