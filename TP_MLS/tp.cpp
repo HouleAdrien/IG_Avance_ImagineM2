@@ -21,7 +21,7 @@
 #include <string>
 #include <cstdio>
 #include <cstdlib>
-
+#include <cmath>
 #include <algorithm>
 #include <GL/glut.h>
 #include <float.h>
@@ -166,6 +166,25 @@ bool save( const std::string & filename , std::vector< Vec3 > & vertices , std::
 }
 
 
+float singularWeight(float radius, float distance, int p){
+  const float EPSILON =1e-6f; //une petite valeur pour éviter la division par 0 sans trop changer les résultats des calculs ultérieurs
+  if(distance < EPSILON) distance = EPSILON;
+  return pow(radius/distance,p);
+}
+
+float gaussWeight(float radius, float distance){
+    return exp(-(distance*distance)/(radius*radius));
+}
+
+float wendLand(float radius,float distance){
+    if(distance < radius){
+    	float ratio = distance/radius;
+    	return pow(1-ratio,4)*(4*ratio+1);
+    }
+    return 0;
+}
+
+
 
 
 
@@ -186,23 +205,37 @@ void HPSS(Vec3 inputPoint,
     std::vector<Vec3> const & positions, std::vector<Vec3> const & normals, BasicANNkdTree const & kdtree,
     int kernel_type, float radius, unsigned int nbIterations = 10, unsigned int knn = 20)
 {
+    for(unsigned int i=0; i<nbIterations;i++){
     
-        ANNidxArray nearest_ids = new ANNidx[knn];
+    	ANNidxArray nearest_ids = new ANNidx[knn];
         ANNdistArray nearest_distances = new ANNdist[knn];
         kdtree.knearest(inputPoint,knn,nearest_ids,nearest_distances);
 
         Vec3 centroid = Vec3(0,0,0);
         Vec3 normalCent = Vec3(0,0,0);
+        float count = 0;
+        
 
-        for(int j=0 ; j< knn ; j++){
-            centroid += positions[nearest_ids[j]];
-            normalCent += normals[nearest_ids[j]];
+        for(unsigned int j=0 ; j< knn ; j++){
+            int id = nearest_ids[j];
+            float weight = kernel_type == 0 ? singularWeight(radius,nearest_distances[i],2):
+            		    kernel_type == 1 ? gaussWeight(radius,nearest_distances[i]):
+            		    			wendLand(radius,nearest_distances[i]);
+            
+            
+            centroid += weight * positions[id];
+            normalCent += weight * normals[id];
+            
+            count += weight;
         }
 
-        centroid = centroid / knn;
-        outputNormal = normalCent /knn;
+        centroid = centroid / count;
+        outputNormal = normalCent /count;
 
         outputPoint= projectOnPlane(inputPoint,centroid,outputNormal);
+    
+    }
+        
 
           
     
@@ -415,23 +448,20 @@ int main (int argc, char ** argv) {
         }
 
         // PROJECT USING MLS (HPSS and APSS):
-        // TODO
 
-     
 
          for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
 
             Vec3 outputPoint;
             Vec3 outputNormal;
 
-            HPSS( positions2[pIt] , outputPoint , outputNormal ,   positions , normals , kdtree ,1, 5 );
+            HPSS( positions2[pIt] , outputPoint , outputNormal ,   positions , normals , kdtree ,0, 5 );
 
             positions2[pIt] =outputPoint;
             normals2[pIt] =outputNormal;
 
 
          }
-        //int k,const point_t i_position ,std::vector <Vec3> const & positions ,std::vector <Vec3> const & normals
         
     }
 
