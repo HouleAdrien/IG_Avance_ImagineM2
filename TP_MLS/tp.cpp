@@ -53,9 +53,6 @@ static bool mouseZoomPressed = false;
 static int lastX=0, lastY=0, lastZoom=0;
 static bool fullScreen = false;
 
-
-
-
 // ------------------------------------------------------------------------------------------------------------
 // i/o and some stuff
 // ------------------------------------------------------------------------------------------------------------
@@ -165,84 +162,6 @@ bool save( const std::string & filename , std::vector< Vec3 > & vertices , std::
     return true;
 }
 
-
-float singularWeight(float radius, float distance, int p){
-  const float EPSILON =1e-6f; //une petite valeur pour éviter la division par 0 sans trop changer les résultats des calculs ultérieurs
-  if(distance < EPSILON) distance = EPSILON;
-  return pow(radius/distance,p);
-}
-
-float gaussWeight(float radius, float distance){
-    return exp(-(distance*distance)/(radius*radius));
-}
-
-float wendLand(float radius,float distance){
-    if(distance < radius){
-    	float ratio = distance/radius;
-    	return pow(1-ratio,4)*(4*ratio+1);
-    }
-    return 0;
-}
-
-
-
-
-
-Vec3 projectOnPlane(Vec3 point_to_project, Vec3 centroid, Vec3 normal){
-
-
-    Vec3 dc = point_to_project - centroid;
-    float dot = Vec3::dot(dc,normal);
-
-    Vec3 result = point_to_project - (dot * normal);
-
-
-    return result;
-}
-
-void HPSS(Vec3 inputPoint, 
-    Vec3 & outputPoint, Vec3 & outputNormal, 
-    std::vector<Vec3> const & positions, std::vector<Vec3> const & normals, BasicANNkdTree const & kdtree,
-    int kernel_type, float radius, unsigned int nbIterations = 10, unsigned int knn = 20)
-{
-    for(unsigned int i=0; i<nbIterations;i++){
-    
-    	ANNidxArray nearest_ids = new ANNidx[knn];
-        ANNdistArray nearest_distances = new ANNdist[knn];
-        kdtree.knearest(inputPoint,knn,nearest_ids,nearest_distances);
-
-        Vec3 centroid = Vec3(0,0,0);
-        Vec3 normalCent = Vec3(0,0,0);
-        float count = 0;
-        
-
-        for(unsigned int j=0 ; j< knn ; j++){
-            int id = nearest_ids[j];
-            float weight = kernel_type == 0 ? singularWeight(radius,nearest_distances[i],2):
-            		    kernel_type == 1 ? gaussWeight(radius,nearest_distances[i]):
-            		    			wendLand(radius,nearest_distances[i]);
-            
-            
-            centroid += weight * positions[id];
-            normalCent += weight * normals[id];
-            
-            count += weight;
-        }
-
-        centroid = centroid / count;
-        outputNormal = normalCent /count;
-
-        outputPoint= projectOnPlane(inputPoint,centroid,outputNormal);
-    
-    }
-        
-
-          
-    
-}
-
-
-
 // ------------------------------------------------------------------------------------------------------------
 // rendering.
 // ------------------------------------------------------------------------------------------------------------
@@ -309,13 +228,6 @@ void draw () {
     glColor3f(1,0.5,0.5);
     drawPointSet(positions2 , normals2);
 }
-
-
-
-
-
-
-
 
 void display () {
     glLoadIdentity ();
@@ -408,6 +320,139 @@ void reshape(int w, int h) {
 
 
 
+
+float singularWeight(float radius, float distance, int p){
+  const float EPSILON =1e-6f; //une petite valeur pour éviter la division par 0 sans trop changer les résultats des calculs ultérieurs
+  if(distance < EPSILON) distance = EPSILON;
+  return pow(radius/distance,p);
+}
+
+float gaussWeight(float radius, float distance){
+    return exp(-(distance*distance)/(radius*radius));
+}
+
+float wendLand(float radius,float distance){
+    if(distance < radius){
+    	float ratio = distance/radius;
+    	return pow(1-ratio,4)*(4*ratio+1);
+    }
+    return 0;
+}
+
+Vec3 projectOnPlane(Vec3 point_to_project, Vec3 centroid, Vec3 normal){
+    Vec3 dc = point_to_project - centroid;
+    float dot = Vec3::dot(dc,normal);
+    Vec3 result = point_to_project - (dot * normal);
+    return result;
+}
+
+void HPSS(Vec3 inputPoint, 
+    Vec3 & outputPoint, Vec3 & outputNormal, 
+    std::vector<Vec3> const & positions, std::vector<Vec3> const & normals, BasicANNkdTree const & kdtree,
+    int kernel_type, float radius, unsigned int nbIterations = 10, unsigned int knn = 20)
+{
+    for(unsigned int i=0; i<nbIterations;i++){
+    
+    	ANNidxArray nearest_ids = new ANNidx[knn];
+        ANNdistArray nearest_distances = new ANNdist[knn];
+        kdtree.knearest(inputPoint,knn,nearest_ids,nearest_distances);
+
+        Vec3 centroid = Vec3(0,0,0);
+        Vec3 normalCent = Vec3(0,0,0);
+        float count = 0;
+        
+
+        for(unsigned int j=0 ; j< knn ; j++){
+            int id = nearest_ids[j];
+            float weight = kernel_type == 0 ? singularWeight(radius,nearest_distances[j],2):
+            		    kernel_type == 1 ? gaussWeight(radius,nearest_distances[j]):
+            		    			wendLand(radius,nearest_distances[j]);
+            
+            centroid += weight * positions[id];
+            normalCent += weight * normals[id];
+            
+            count += weight;
+        }
+
+        centroid = centroid / count;
+        outputNormal = normalCent /count;
+
+        Vec3 proj = projectOnPlane(inputPoint,centroid,outputNormal);
+        inputPoint = proj;
+        outputPoint = proj;
+
+        delete[] nearest_ids;
+        delete[] nearest_distances;
+    }
+        
+}
+
+void generateNormalsForCubePoint(float x, float y ,float z, std::vector<Vec3>& normals) {
+        Vec3 normal;
+        if (x == -0.5f) {
+            normal = Vec3(-1.0f, 0.0f, 0.0f);
+        } else if (x == 0.5f) {
+            normal = Vec3(1.0f, 0.0f, 0.0f);
+        } else if (y == -0.5f) {
+            normal = Vec3(0.0f, -1.0f, 0.0f);
+        } else if (y == 0.5f) {
+            normal = Vec3(0.0f, 1.0f, 0.0f);
+        } else if (z == -0.5f) {
+            normal = Vec3(0.0f, 0.0f, -1.0f);
+        } else if (z == 0.5f) {
+            normal = Vec3(0.0f, 0.0f, 1.0f);
+        }
+
+        normals.push_back(normal);
+    
+}
+
+void generateRandomPointsOnCubeFaces(std::vector<Vec3>& points,std::vector<Vec3>& normals, int numberOfPoints) {
+    srand(time(NULL));
+
+    for (int i = 0; i < numberOfPoints; i++) {
+        float x=0.0f, y=0.0f, z=0.0f;
+
+        int face = rand() % 6;
+
+        switch(face) {
+            case 0:
+                x = -0.5f;
+                y = -0.5f + (rand() / (float)RAND_MAX) ; 
+                z = -0.5f + (rand() / (float)RAND_MAX); 
+                break;
+            case 1:
+                x = 0.5f;
+                y = -0.5f + (rand() / (float)RAND_MAX) ; 
+                z = -0.5f + (rand() / (float)RAND_MAX) ;
+                break;
+            case 2:
+                x = -0.5f + (rand() / (float)RAND_MAX); 
+                y = -0.5f;
+                z = -0.5f + (rand() / (float)RAND_MAX) ; 
+                break;
+            case 3:
+                x = -0.5f + (rand() / (float)RAND_MAX) ; 
+                y = 0.5f;
+                z = -0.5f + (rand() / (float)RAND_MAX);
+                break;
+            case 4:
+                x = -0.5f + (rand() / (float)RAND_MAX) ; 
+                y = -0.5f + (rand() / (float)RAND_MAX) ; 
+                z = -0.5f;
+                break;
+            case 5:
+                x = -0.5f + (rand() / (float)RAND_MAX) ; 
+                y = -0.5f + (rand() / (float)RAND_MAX) ; 
+                z = 0.5f;
+                break;
+        }
+        generateNormalsForCubePoint(x,y,z,normals);
+        points.push_back(Vec3(x, y, z));
+    }
+    
+}
+
 int main (int argc, char ** argv) {
     if (argc > 2) {
         exit (EXIT_FAILURE);
@@ -435,7 +480,8 @@ int main (int argc, char ** argv) {
         kdtree.build(positions);
 
         // Create a second pointset that is artificial, and project it on pointset1 using MLS techniques:
-        positions2.resize( 20000 );
+        const unsigned int pointsetsize = 20000;
+        positions2.resize( pointsetsize );
         normals2.resize(positions2.size());
         for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
             positions2[pIt] = Vec3(
@@ -446,22 +492,33 @@ int main (int argc, char ** argv) {
             positions2[pIt].normalize();
             positions2[pIt] = 0.6 * positions2[pIt];
         }
-
+        
+        //generate cube normals and points
+        std::vector<Vec3> cubepoints;
+        std::vector<Vec3> cubenormals;
+        
+        cubepoints.resize( pointsetsize );
+        cubenormals.resize( pointsetsize );
+        
+        generateRandomPointsOnCubeFaces(cubepoints,cubenormals,pointsetsize);
+         BasicANNkdTree kdtreecube;
+        kdtreecube.build(cubepoints);
+	 
         // PROJECT USING MLS (HPSS and APSS):
 
 
-         for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
+          for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
 
             Vec3 outputPoint;
             Vec3 outputNormal;
 
-            HPSS( positions2[pIt] , outputPoint , outputNormal ,   positions , normals , kdtree ,0, 5 );
+            HPSS( positions2[pIt] , outputPoint , outputNormal ,   cubepoints , cubenormals , kdtreecube ,2, 10,10,10);
 
             positions2[pIt] =outputPoint;
             normals2[pIt] =outputNormal;
 
 
-         }
+          }
         
     }
 
