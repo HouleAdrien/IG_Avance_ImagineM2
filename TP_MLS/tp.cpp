@@ -483,26 +483,33 @@ int main (int argc, char ** argv) {
         const unsigned int pointsetsize = 20000;
         positions2.resize( pointsetsize );
         normals2.resize(positions2.size());
+        
         for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
-            positions2[pIt] = Vec3(
-                        -0.6 + 1.2 * (double)(rand())/(double)(RAND_MAX),
-                        -0.6 + 1.2 * (double)(rand())/(double)(RAND_MAX),
-                        -0.6 + 1.2 * (double)(rand())/(double)(RAND_MAX)
-                        );
-            positions2[pIt].normalize();
-            positions2[pIt] = 0.6 * positions2[pIt];
+            // Ajout de bruit dans la direction de la normale initiale (avant la projection):
+            double alpha = 2; 
+            double noise = alpha*(2.0 * ((double)rand()/RAND_MAX)-1.0);
+            
+            positions2[pIt] += noise * normals[pIt];
+
+            Vec3 outputPoint;
+            Vec3 outputNormal;
+
+            HPSS( positions2[pIt] , outputPoint , outputNormal ,   positions , normals , kdtree ,1, 10, 10);
+
+            positions2[pIt] =outputPoint;
+            normals2[pIt] =outputNormal;
         }
         
         //generate cube normals and points
-        std::vector<Vec3> cubepoints;
-        std::vector<Vec3> cubenormals;
+        // std::vector<Vec3> cubepoints;
+        // std::vector<Vec3> cubenormals;
         
-        cubepoints.resize( pointsetsize );
-        cubenormals.resize( pointsetsize );
+        // cubepoints.resize( pointsetsize );
+        // cubenormals.resize( pointsetsize );
         
-        generateRandomPointsOnCubeFaces(cubepoints,cubenormals,pointsetsize);
-         BasicANNkdTree kdtreecube;
-        kdtreecube.build(cubepoints);
+        // generateRandomPointsOnCubeFaces(cubepoints,cubenormals,pointsetsize);
+        //  BasicANNkdTree kdtreecube;
+        // kdtreecube.build(cubepoints);
 	 
         // PROJECT USING MLS (HPSS and APSS):
 
@@ -512,7 +519,7 @@ int main (int argc, char ** argv) {
             Vec3 outputPoint;
             Vec3 outputNormal;
 
-            HPSS( positions2[pIt] , outputPoint , outputNormal ,   cubepoints , cubenormals , kdtreecube ,2, 10,10,10);
+            HPSS( positions2[pIt] , outputPoint , outputNormal ,   positions , normals , kdtree ,1, 10, 10);
 
             positions2[pIt] =outputPoint;
             normals2[pIt] =outputNormal;
