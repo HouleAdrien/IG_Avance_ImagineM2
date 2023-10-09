@@ -222,8 +222,8 @@ void drawPointSet( std::vector< Vec3 > const & i_positions , std::vector< Vec3 >
 void draw () {
     glPointSize(2); // for example...
 
-    glColor3f(0.8,0.8,1);
-    drawPointSet(positions , normals);
+  //  glColor3f(0.8,0.8,1);
+   // drawPointSet(positions , normals);
 
     glColor3f(1,0.5,0.5);
     drawPointSet(positions2 , normals2);
@@ -394,9 +394,9 @@ struct VoxelPoint{
 };
 
 std::vector<VoxelPoint> voxelGrid;
-int resolutionX = 50;
-int resolutionY = 50;
-int resolutionZ = 50;
+int resolutionX = 30;
+int resolutionY = 30;
+int resolutionZ = 30;
 
 /*std::vector<Vec3>*/ void GenerateVoxelGrid(std::vector<Vec3> positionsModel){
 
@@ -450,7 +450,7 @@ int resolutionZ = 50;
 void  EvaluateGridValues(std::vector<Vec3> positions,std::vector<Vec3> normals,BasicANNkdTree const & kdtree){
 
 
-	 for(VoxelPoint point : voxelGrid){
+	 for(VoxelPoint& point : voxelGrid){
           
             Vec3 outputPoint;
             Vec3 outputNormal;
@@ -462,6 +462,7 @@ void  EvaluateGridValues(std::vector<Vec3> positions,std::vector<Vec3> normals,B
             //on fait le scalaire a la normal
             //si > 0 on est en dehors de la forme, = 0 on est sûr la forme, < 0 on est dans la forme
             float scal = Vec3::dot(direction,outputNormal);
+           
             point.sp = scal;
            
         }
@@ -469,59 +470,62 @@ void  EvaluateGridValues(std::vector<Vec3> positions,std::vector<Vec3> normals,B
 }
 
 std::vector<Vec3> GenerateMeshVerticesFromProcessingVoxelCells(){
-	std::vector<Vec3> result;
-	for(int i=0; i< resolutionX-1; i++ )
-	{
-		for(int j=0 ;j< resolutionY-1; j++ )
-		{
+    std::vector<Vec3> result;
+    for(int i = 0; i < resolutionX - 1; i++ )
+    {
+        for(int j = 0; j < resolutionY - 1; j++ )
+        {
+            for(int k = 0; k < resolutionZ - 1; k++ )
+            {
+                VoxelPoint points[8];
+                points[0] = voxelGrid[i + (j * resolutionY) + (k * resolutionY * resolutionZ)];
+                points[1] = voxelGrid[(i+1) + (j * resolutionY) + (k * resolutionY * resolutionZ)];
+                points[2] = voxelGrid[i + ((j+1) * resolutionY) + (k * resolutionY * resolutionZ)];
+                points[3] = voxelGrid[(i+1) + ((j+1) * resolutionY) + (k * resolutionY * resolutionZ)];
+                points[4] = voxelGrid[i + (j * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
+                points[5] = voxelGrid[(i+1) + (j * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
+                points[6] = voxelGrid[i + ((j+1) * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
+                points[7] = voxelGrid[(i+1) + ((j+1) * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
 
-			for(int k=0 ;k< resolutionZ-1; k++ )
-			{
-				VoxelPoint points[8];
-				points[0] = voxelGrid[i + (j * resolutionY)+ (k* resolutionY *resolutionZ)];
-				points[1] = voxelGrid[(i+1) + (j * resolutionY)+ (k* resolutionY *resolutionZ)];
-				points[2] = voxelGrid[i + ((j+1) * resolutionY)+ (k* resolutionY *resolutionZ)];
-				points[3] = voxelGrid[i + (j * resolutionY)+ ((k+1)* resolutionY *resolutionZ)];
-				points[4] = voxelGrid[(i+1) + ((j+1) * resolutionY)+ (k* resolutionY *resolutionZ)];
-				points[5] = voxelGrid[(i+1) + ((j+1) * resolutionY)+ ((k+1)* resolutionY *resolutionZ)];
-				points[6] = voxelGrid[i + ((j+1) * resolutionY)+ ((k+1)* resolutionY *resolutionZ)];
-				points[7] = voxelGrid[i + (j * resolutionY)+ ((k+1)* resolutionY *resolutionZ)];
+                bool isEdge = false;
 
-				bool isEdge = false;
+                for(int l = 0; l < 8; l++)
+                {
+                    for(int m = 0; m < 8; m++)  
+                    {
+                        if(points[l].sp > 0 && points[m].sp < 0)
+                        {
+                            isEdge = true;
+                        }
 
-				for(int i=0; i< 8; i++)
-				{
-					for(int j=0;i<j; j++){
-						if(points[i].sp < 0 && points[i].sp > 0){
-							isEdge = true;
-						}
-						if(points[i].sp > 0 && points[i].sp < 0){
-							isEdge = true;
-						}
-					}
-				}
+                        if(points[l].sp < 0 && points[m].sp > 0) 
+                        {
+                            isEdge = true;
+                        }
+                      
+                    }
+                }
 
-				if(isEdge){
+                if(isEdge)
+                {
+                    float totx = 0.0f;  
+                    float toty = 0.0f;
+                    float totz = 0.0f;
 
-					float totx;
-					float toty;
-					float totz;
-
-					for(int i=0;i<8; i++){
-						totx+=points[i].position[0];
-						toty+=points[i].position[1];
-						totz+=points[i].position[2];
-					}
-					result.push_back(Vec3((totx/8),(toty/8),(totz/8)));
-
-				}
-
-			}
-		}
-	}
-
-	return result;
+                    for(int l = 0; l < 8; l++)  
+                    {
+                        totx += points[l].position[0];
+                        toty += points[l].position[1];
+                        totz += points[l].position[2];
+                    }
+                    result.push_back(Vec3((totx/8), (toty/8), (totz/8)));
+                }
+            }
+        }
+    }
+    return result;
 }
+
 
 int main (int argc, char ** argv) {
     if (argc > 2) {
@@ -580,7 +584,7 @@ int main (int argc, char ** argv) {
        //positions2 = GenerateVoxelGrid(positions);
         GenerateVoxelGrid(positions);
    //step 2
-       EvaluateGridValues(positions2,normals2,kdtree);
+       EvaluateGridValues(positions,normals,kdtree);
       
        std::vector<Vec3> vertices = GenerateMeshVerticesFromProcessingVoxelCells();
        positions2.resize(vertices.size());
