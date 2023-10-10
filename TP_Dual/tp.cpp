@@ -527,6 +527,8 @@ std::vector<Vec3> GenerateMeshVerticesFromProcessingVoxelCells(){
 }
 
 
+
+
 int main (int argc, char ** argv) {
     if (argc > 2) {
         exit (EXIT_FAILURE);
@@ -587,6 +589,7 @@ int main (int argc, char ** argv) {
        EvaluateGridValues(positions,normals,kdtree);
       
        std::vector<Vec3> vertices = GenerateMeshVerticesFromProcessingVoxelCells();
+ //step 3
        positions2.resize(vertices.size());
        normals2.resize(vertices.size());
        positions2 = vertices;
