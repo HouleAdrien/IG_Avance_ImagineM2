@@ -193,22 +193,31 @@ void init () {
 }
 
 
-
-void drawTriangleMesh( std::vector< Vec3 > const & i_positions , std::vector< unsigned int > const & i_triangles ) {
+void drawTriangleMesh(const std::vector<Vec3> &i_positions, const std::vector<unsigned int> &i_triangles) {
     glBegin(GL_TRIANGLES);
-    for(unsigned int tIt = 0 ; tIt < i_triangles.size() / 3 ; ++tIt) {
-        Vec3 p0 = i_positions[3*tIt];
-        Vec3 p1 = i_positions[3*tIt+1];
-        Vec3 p2 = i_positions[3*tIt+2];
-        Vec3 n = Vec3::cross(p1-p0 , p2-p0);
-        n.normalize();
-        glNormal3f( n[0] , n[1] , n[2] );
-        glVertex3f( p0[0] , p0[1] , p0[2] );
-        glVertex3f( p1[0] , p1[1] , p1[2] );
-        glVertex3f( p2[0] , p2[1] , p2[2] );
+    for (unsigned int tIt = 0; tIt < i_triangles.size(); tIt += 3) {
+        Vec3 p0 = i_positions[i_triangles[tIt]];
+        Vec3 p1 = i_positions[i_triangles[tIt + 1]];
+        Vec3 p2 = i_positions[i_triangles[tIt + 2]];
+
+        Vec3 u = {p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]};
+        Vec3 v = {p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]};
+        Vec3 n = {
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0]
+        };
+        float length = sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        n = {n[0] / length, n[1] / length, n[2] / length};
+
+        glNormal3f(n[0], n[1], n[2]);
+        glVertex3f(p0[0], p0[1], p0[2]);
+        glVertex3f(p1[0], p1[1], p1[2]);
+        glVertex3f(p2[0], p2[1], p2[2]);
     }
     glEnd();
 }
+
 
 void drawPointSet( std::vector< Vec3 > const & i_positions , std::vector< Vec3 > const & i_normals ) {
     glBegin(GL_POINTS);
@@ -225,8 +234,8 @@ void draw () {
   //  glColor3f(0.8,0.8,1);
    // drawPointSet(positions , normals);
 
-    glColor3f(1,0.5,0.5);
-    drawPointSet(positions2 , normals2);
+   // glColor3f(1,0.5,0.5);
+   // drawPointSet(positions2 , normals2);
 }
 
 void display () {
@@ -398,6 +407,8 @@ int resolutionX = 30;
 int resolutionY = 30;
 int resolutionZ = 30;
 
+
+
 /*std::vector<Vec3>*/ void GenerateVoxelGrid(std::vector<Vec3> positionsModel){
 
 	float maxFloat = std::numeric_limits<float>::max();
@@ -443,8 +454,6 @@ int resolutionZ = 30;
 			}
 		}
 	}
-
-	//return pos;
 }
 
 void  EvaluateGridValues(std::vector<Vec3> positions,std::vector<Vec3> normals,BasicANNkdTree const & kdtree){
@@ -469,8 +478,14 @@ void  EvaluateGridValues(std::vector<Vec3> positions,std::vector<Vec3> normals,B
 	
 }
 
-std::vector<Vec3> GenerateMeshVerticesFromProcessingVoxelCells(){
-    std::vector<Vec3> result;
+struct VoxelCell{
+	VoxelPoint points[8];
+	Vec3 center;
+};
+
+std::vector<VoxelCell> voxelGridCells;
+
+void ProcessVoxelCells(){
     for(int i = 0; i < resolutionX - 1; i++ )
     {
         for(int j = 0; j < resolutionY - 1; j++ )
@@ -486,44 +501,97 @@ std::vector<Vec3> GenerateMeshVerticesFromProcessingVoxelCells(){
                 points[5] = voxelGrid[(i+1) + (j * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
                 points[6] = voxelGrid[i + ((j+1) * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
                 points[7] = voxelGrid[(i+1) + ((j+1) * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
+               
+                float totx = 0.0f;  
+                float toty = 0.0f;
+                float totz = 0.0f;
+
+                for(int l = 0; l < 8; l++)  
+                {
+                    totx += points[l].position[0];
+                    toty += points[l].position[1];
+                    totz += points[l].position[2];
+                }
+                Vec3 center = Vec3((totx/8), (toty/8), (totz/8));
+                VoxelCell cell = VoxelCell();
+                for(int m = 0; m < 8; m++) {
+                    cell.points[m] = points[m];
+                }
+
+                cell.center = center;
+                voxelGridCells.push_back(cell);
+            }
+        }
+    }
+}
+
+
+//Cette fonction permet de récupérer les 2 points de l'arrete au centre de mes 4 cellules
+std::vector<Vec3> global_positions;
+std::vector<unsigned int> global_triangles;
+
+void ProcessVoxelEdges(int direction)
+{
+    int i_limit = direction == 0 ? resolutionX - 3 : resolutionX;
+    int j_limit = direction == 1 ? resolutionY - 3 : resolutionY;
+    int k_limit = direction == 2 ? resolutionZ - 3 : resolutionZ;
+
+    for (int i = 0; i < i_limit; i++)
+    {
+        for (int j = 0; j < j_limit; j++)
+        {
+            for (int k = 0; k < k_limit; k++)
+            {
+                std::vector<VoxelCell> voxel_4;
+
+                for (int offset = 0; offset < 4; offset++)
+                {
+                    int x_index = direction == 0 ? i + offset : i;
+                    int y_index = direction == 1 ? j + offset : j;
+                    int z_index = direction == 2 ? k + offset : k;
+
+                    VoxelCell cell = voxelGridCells[x_index + (y_index * resolutionY) + (z_index * resolutionY * resolutionZ)];
+                    voxel_4.push_back(cell);
+                }
+
+                int commonIndices[2];
+                if(direction == 0) { commonIndices[0] = 1; commonIndices[1] = 5; }
+                else if(direction == 1) { commonIndices[0] = 2; commonIndices[1] = 6; }
+                else if(direction == 2) { commonIndices[0] = 4; commonIndices[1] = 5; }
+
+                VoxelPoint commonPoints[2];
+                commonPoints[0] = voxel_4[0].points[commonIndices[0]];
+                commonPoints[1] = voxel_4[0].points[commonIndices[1]];
 
                 bool isEdge = false;
 
-                for(int l = 0; l < 8; l++)
+                if(commonPoints[0].sp > 0 && commonPoints[1].sp < 0)
                 {
-                    for(int m = 0; m < 8; m++)  
-                    {
-                        if(points[l].sp > 0 && points[m].sp < 0)
-                        {
-                            isEdge = true;
-                        }
-
-                        if(points[l].sp < 0 && points[m].sp > 0) 
-                        {
-                            isEdge = true;
-                        }
-                      
-                    }
+                    isEdge = true;
                 }
 
-                if(isEdge)
+                if(commonPoints[0].sp < 0 && commonPoints[1].sp > 0) 
                 {
-                    float totx = 0.0f;  
-                    float toty = 0.0f;
-                    float totz = 0.0f;
+                    isEdge = true;
+                }
 
-                    for(int l = 0; l < 8; l++)  
-                    {
-                        totx += points[l].position[0];
-                        toty += points[l].position[1];
-                        totz += points[l].position[2];
+                // Si c'est un bord, ajouter les centres des cellules et créer des triangles
+                if(isEdge) {
+                    for(int c = 0; c < 4; ++c) {
+                        global_positions.push_back(voxel_4[c].center); 
                     }
-                    result.push_back(Vec3((totx/8), (toty/8), (totz/8)));
+                    
+                    global_triangles.push_back(global_positions.size() - 4); 
+                    global_triangles.push_back(global_positions.size() - 3);
+                    global_triangles.push_back(global_positions.size() - 2);
+                    
+                    global_triangles.push_back(global_positions.size() - 4); 
+                    global_triangles.push_back(global_positions.size() - 2);
+                    global_triangles.push_back(global_positions.size() - 1);
                 }
             }
         }
     }
-    return result;
 }
 
 
@@ -588,12 +656,14 @@ int main (int argc, char ** argv) {
    //step 2
        EvaluateGridValues(positions,normals,kdtree);
       
-       std::vector<Vec3> vertices = GenerateMeshVerticesFromProcessingVoxelCells();
  //step 3
-       positions2.resize(vertices.size());
-       normals2.resize(vertices.size());
-       positions2 = vertices;
-        
+
+    ProcessVoxelCells();
+    ProcessVoxelEdges(0);
+    ProcessVoxelEdges(1);
+    ProcessVoxelEdges(2);
+
+    drawTriangleMesh(global_positions, global_triangles);
     }
 
 
