@@ -193,22 +193,31 @@ void init () {
 }
 
 
-
-void drawTriangleMesh( std::vector< Vec3 > const & i_positions , std::vector< unsigned int > const & i_triangles ) {
+void drawTriangleMesh(const std::vector<Vec3> &i_positions, const std::vector<unsigned int> &i_triangles) {
     glBegin(GL_TRIANGLES);
-    for(unsigned int tIt = 0 ; tIt < i_triangles.size() / 3 ; ++tIt) {
-        Vec3 p0 = i_positions[3*tIt];
-        Vec3 p1 = i_positions[3*tIt+1];
-        Vec3 p2 = i_positions[3*tIt+2];
-        Vec3 n = Vec3::cross(p1-p0 , p2-p0);
-        n.normalize();
-        glNormal3f( n[0] , n[1] , n[2] );
-        glVertex3f( p0[0] , p0[1] , p0[2] );
-        glVertex3f( p1[0] , p1[1] , p1[2] );
-        glVertex3f( p2[0] , p2[1] , p2[2] );
+    for (unsigned int tIt = 0; tIt < i_triangles.size(); tIt += 3) {
+        Vec3 p0 = i_positions[i_triangles[tIt]];
+        Vec3 p1 = i_positions[i_triangles[tIt + 1]];
+        Vec3 p2 = i_positions[i_triangles[tIt + 2]];
+
+        Vec3 u = {p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]};
+        Vec3 v = {p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]};
+        Vec3 n = {
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0]
+        };
+        float length = sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        n = {n[0] / length, n[1] / length, n[2] / length};
+
+        glNormal3f(n[0], n[1], n[2]);
+        glVertex3f(p0[0], p0[1], p0[2]);
+        glVertex3f(p1[0], p1[1], p1[2]);
+        glVertex3f(p2[0], p2[1], p2[2]);
     }
     glEnd();
 }
+
 
 void drawPointSet( std::vector< Vec3 > const & i_positions , std::vector< Vec3 > const & i_normals ) {
     glBegin(GL_POINTS);
@@ -219,14 +228,17 @@ void drawPointSet( std::vector< Vec3 > const & i_positions , std::vector< Vec3 >
     glEnd();
 }
 
+std::vector<Vec3> global_positions;
+std::vector<unsigned int> global_triangles;
+
 void draw () {
     glPointSize(2); // for example...
 
-  //  glColor3f(0.8,0.8,1);
-   // drawPointSet(positions , normals);
+ 
 
-    glColor3f(1,0.5,0.5);
-    drawPointSet(positions2 , normals2);
+  glColor3f(1,0.5,0.5);
+ //drawPointSet(positions2 , normals2);
+  drawTriangleMesh(global_positions ,global_triangles);
 }
 
 void display () {
@@ -391,14 +403,24 @@ void HPSS(Vec3 inputPoint,
 struct VoxelPoint{
 	Vec3 position;
 	float sp;
+
+
+    bool operator==(const VoxelPoint& other) const {
+        return position[0] == other.position[0] &&
+               position[1] == other.position[1] &&
+               position[2] == other.position[2] &&
+               sp == other.sp;
+    }
 };
 
 std::vector<VoxelPoint> voxelGrid;
-int resolutionX = 30;
-int resolutionY = 30;
-int resolutionZ = 30;
+int resolutionX = 64;
+int resolutionY = 64;
+int resolutionZ = 64;
 
-/*std::vector<Vec3>*/ void GenerateVoxelGrid(std::vector<Vec3> positionsModel){
+
+
+std::vector<Vec3> GenerateVoxelGrid(std::vector<Vec3> positionsModel){
 
 	float maxFloat = std::numeric_limits<float>::max();
 	float minFloat = std::numeric_limits<float>::min();
@@ -425,7 +447,7 @@ int resolutionZ = 30;
 
 
 
-	//std::vector<Vec3> pos;
+	std::vector<Vec3> pos;
 
 	for(int i=0; i< resolutionX; i++ ){
 		for(int j=0 ;j< resolutionY; j++ ){
@@ -437,14 +459,13 @@ int resolutionZ = 30;
 				point.position[1] = BBmin[1]  +((BBmax[1] - BBmin[1]) / (resolutionY-1)) *j;
 				point.position[2] = BBmin[2]  + ((BBmax[2] - BBmin[2]) / (resolutionZ-1)) *k;
 
-				//pos.push_back(Vec3(point.position[0],point.position[1],point.position[2]));
+				pos.push_back(Vec3(point.position[0],point.position[1],point.position[2]));
 
 				voxelGrid.push_back(point);
 			}
 		}
 	}
-
-	//return pos;
+    return pos;
 }
 
 void  EvaluateGridValues(std::vector<Vec3> positions,std::vector<Vec3> normals,BasicANNkdTree const & kdtree){
@@ -469,64 +490,147 @@ void  EvaluateGridValues(std::vector<Vec3> positions,std::vector<Vec3> normals,B
 	
 }
 
-std::vector<Vec3> GenerateMeshVerticesFromProcessingVoxelCells(){
-    std::vector<Vec3> result;
-    for(int i = 0; i < resolutionX - 1; i++ )
+struct VoxelCell{
+	VoxelPoint points[8];
+	Vec3 center;
+    unsigned int centerIndex;
+};
+
+std::vector<VoxelCell> voxelGridCells;
+
+void ProcessVoxelCells(){
+    voxelGridCells.resize(resolutionX * resolutionY * resolutionZ);
+
+    for(int i = 0; i < resolutionX - 1; i++)
     {
-        for(int j = 0; j < resolutionY - 1; j++ )
+        for(int j = 0; j < resolutionY - 1; j++)
         {
-            for(int k = 0; k < resolutionZ - 1; k++ )
+            for(int k = 0; k < resolutionZ - 1; k++)
             {
                 VoxelPoint points[8];
-                points[0] = voxelGrid[i + (j * resolutionY) + (k * resolutionY * resolutionZ)];
-                points[1] = voxelGrid[(i+1) + (j * resolutionY) + (k * resolutionY * resolutionZ)];
-                points[2] = voxelGrid[i + ((j+1) * resolutionY) + (k * resolutionY * resolutionZ)];
-                points[3] = voxelGrid[(i+1) + ((j+1) * resolutionY) + (k * resolutionY * resolutionZ)];
-                points[4] = voxelGrid[i + (j * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
-                points[5] = voxelGrid[(i+1) + (j * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
-                points[6] = voxelGrid[i + ((j+1) * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
-                points[7] = voxelGrid[(i+1) + ((j+1) * resolutionY) + ((k+1) * resolutionY * resolutionZ)];
+                
+                int idx = i + (j * resolutionX) + (k * resolutionX * resolutionY);
 
-                bool isEdge = false;
-
-                for(int l = 0; l < 8; l++)
+                // Récupération des points existants et création de nouveaux points
+                points[0] = voxelGrid[idx];
+                points[1] = voxelGrid[idx + 1];
+                points[2] = voxelGrid[idx + resolutionX];
+                points[3] = voxelGrid[idx + 1 + resolutionX];
+                points[4] = voxelGrid[idx + resolutionX * resolutionY];
+                points[5] = voxelGrid[idx + 1 + resolutionX * resolutionY];
+                points[6] = voxelGrid[idx + resolutionX + resolutionX * resolutionY];
+                points[7] = voxelGrid[idx + 1 + resolutionX + resolutionX * resolutionY];
+                
+                // Calcul du centre
+                Vec3 center(0, 0, 0);
+                for(int l = 0; l < 8; l++)  
                 {
-                    for(int m = 0; m < 8; m++)  
-                    {
-                        if(points[l].sp > 0 && points[m].sp < 0)
-                        {
-                            isEdge = true;
-                        }
+                    center[0] += points[l].position[0];
+                    center[1] += points[l].position[1];
+                    center[2] += points[l].position[2];
+                }
+                center[0] /= 8; center[1] /= 8; center[2] /= 8;
+                
+                // Création et enregistrement de la cellule
+                VoxelCell cell;
+                for(int m = 0; m < 8; m++) 
+                {
+                    cell.points[m] = points[m];
+                }
+                cell.center = center;
+                
+                voxelGridCells[idx] = cell;
+            }
+        }
+    }
+}
 
-                        if(points[l].sp < 0 && points[m].sp > 0) 
-                        {
-                            isEdge = true;
-                        }
-                      
-                    }
+
+//Cette fonction permet de récupérer les 2 points de l'arrete au centre de mes 4 cellules
+
+void ProcessVoxelEdges(int direction)
+{
+    int i_limit = direction == 0 ? resolutionX - 3 : resolutionX;
+    int j_limit = direction == 1 ? resolutionY - 3 : resolutionY;
+    int k_limit = direction == 2 ? resolutionZ - 3 : resolutionZ;
+
+    for (int i = 0; i < i_limit; i++)
+    {
+        for (int j = 0; j < j_limit; j++)
+        {
+            for (int k = 0; k < k_limit; k++)
+            {
+                std::vector<VoxelCell> voxel_4;
+
+                for (int offset = 0; offset < 4; offset++)
+                {
+                    int x_index = direction == 0 ? i + offset : i;
+                    int y_index = direction == 1 ? j + offset : j;
+                    int z_index = direction == 2 ? k + offset : k;
+
+                    VoxelCell cell = voxelGridCells[x_index + (y_index * resolutionY) + (z_index * resolutionY * resolutionZ)];
+                    voxel_4.push_back(cell);
                 }
 
-                if(isEdge)
-                {
-                    float totx = 0.0f;  
-                    float toty = 0.0f;
-                    float totz = 0.0f;
+                int commonIndices[2];
+               if(direction == 0) { commonIndices[0] = 1; commonIndices[1] = 0; }
+                else if(direction == 1) { commonIndices[0] = 0; commonIndices[1] = 2; }
+                else if(direction == 2) { commonIndices[0] = 0; commonIndices[1] = 4; }
 
-                    for(int l = 0; l < 8; l++)  
-                    {
-                        totx += points[l].position[0];
-                        toty += points[l].position[1];
-                        totz += points[l].position[2];
+
+
+                VoxelPoint commonPoints[2];
+
+                commonPoints[0] = voxel_4[0].points[commonIndices[0]];
+                commonPoints[1] = voxel_4[0].points[commonIndices[1]];
+
+                bool isEdge = false;
+                bool horaire = false;
+                if(commonPoints[0].sp > 0 && commonPoints[1].sp < 0)
+                {
+                    
+                    horaire = false;
+                    isEdge = true;
+                }
+
+                if(commonPoints[0].sp < 0 && commonPoints[1].sp > 0) 
+                {
+                    horaire = true;
+                    isEdge = true;
+                }
+
+                // Si c'est un bord, ajouter les centres des cellules et créer des triangles
+                if(isEdge) {
+                    int indices[4]; 
+                    for(int c = 0; c < 4; ++c) {
+                        global_positions.push_back(voxel_4[c].center); 
+                        voxel_4[c].centerIndex = global_positions.size();
                     }
-                    result.push_back(Vec3((totx/8), (toty/8), (totz/8)));
+
+                    if(!horaire){
+                        indices[0] = voxel_4[0].centerIndex;
+                        indices[1] = voxel_4[1].centerIndex;
+                        indices[2] = voxel_4[2].centerIndex;
+                        indices[3] = voxel_4[3].centerIndex;
+                    }else{
+                        indices[0] = voxel_4[1].centerIndex;
+                        indices[1] = voxel_4[0].centerIndex;
+                        indices[2] = voxel_4[3].centerIndex;
+                        indices[3] = voxel_4[2].centerIndex;
+                    }
+                    
+                    global_triangles.push_back(indices[0]);
+                    global_triangles.push_back(indices[1]);
+                    global_triangles.push_back(indices[2]);
+
+                    global_triangles.push_back(indices[0]);
+                    global_triangles.push_back(indices[2]);
+                    global_triangles.push_back(indices[3]);
                 }
             }
         }
     }
-    return result;
 }
-
-
 
 
 int main (int argc, char ** argv) {
@@ -583,17 +687,18 @@ int main (int argc, char ** argv) {
         normals2.resize( resolutionX*resolutionY*resolutionZ );
   
   // step 1
-       //positions2 = GenerateVoxelGrid(positions);
-        GenerateVoxelGrid(positions);
+       positions2 = GenerateVoxelGrid(positions);
+       // GenerateVoxelGrid(positions);
    //step 2
        EvaluateGridValues(positions,normals,kdtree);
       
-       std::vector<Vec3> vertices = GenerateMeshVerticesFromProcessingVoxelCells();
  //step 3
-       positions2.resize(vertices.size());
-       normals2.resize(vertices.size());
-       positions2 = vertices;
-        
+
+    ProcessVoxelCells();
+   ProcessVoxelEdges(0);
+   ProcessVoxelEdges(1);
+    ProcessVoxelEdges(2);
+
     }
 
 
