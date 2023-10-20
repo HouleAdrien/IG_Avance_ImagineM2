@@ -61,6 +61,73 @@ static bool fullScreen = false;
 
 
 
+
+float singularWeight(float radius, float distance, int p){
+  const float EPSILON =1e-6f; //une petite valeur pour éviter la division par 0 sans trop changer les résultats des calculs ultérieurs
+  if(distance < EPSILON) distance = EPSILON;
+  return pow(radius/distance,p);
+}
+
+float gaussWeight(float radius, float distance){
+    return exp(-(distance*distance)/(radius*radius));
+}
+
+float wendLand(float radius,float distance){
+    if(distance < radius){
+    	float ratio = distance/radius;
+    	return pow(1-ratio,4)*(4*ratio+1);
+    }
+    return 0;
+}
+
+Vec3 projectOnPlane(Vec3 point_to_project, Vec3 centroid, Vec3 normal){
+    Vec3 dc = point_to_project - centroid;
+    float dot = Vec3::dot(dc,normal);
+    Vec3 result = point_to_project - (dot * normal);
+    return result;
+}
+
+void HPSS(Vec3 inputPoint, 
+    Vec3 & outputPoint, Vec3 & outputNormal, 
+    std::vector<Vec3> const & positions, std::vector<Vec3> const & normals, BasicANNkdTree const & kdtree,
+    int kernel_type, float radius, unsigned int nbIterations = 10, unsigned int knn = 20)
+{
+    for(unsigned int i=0; i<nbIterations;i++){
+    
+    	ANNidxArray nearest_ids = new ANNidx[knn];
+        ANNdistArray nearest_distances = new ANNdist[knn];
+        kdtree.knearest(inputPoint,knn,nearest_ids,nearest_distances);
+
+        Vec3 centroid = Vec3(0,0,0);
+        Vec3 normalCent = Vec3(0,0,0);
+        float count = 0;
+        
+
+        for(unsigned int j=0 ; j< knn ; j++){
+            int id = nearest_ids[j];
+            float weight = kernel_type == 0 ? singularWeight(radius,nearest_distances[j],2):
+            		    kernel_type == 1 ? gaussWeight(radius,nearest_distances[j]):
+            		    			wendLand(radius,nearest_distances[j]);
+            
+            centroid += weight * positions[id];
+            normalCent += weight * normals[id];
+            
+            count += weight;
+        }
+
+        centroid = centroid / count;
+        outputNormal = normalCent /count;
+
+        Vec3 proj = projectOnPlane(inputPoint,centroid,outputNormal);
+        inputPoint = proj;
+        outputPoint = proj;
+
+        delete[] nearest_ids;
+        delete[] nearest_distances;
+    }
+        
+}
+
 Vec3 GetCentroid(std::vector<Vec3> const & coords){
 	float x,y,z = 0.0f;
 	Vec3 res = Vec3(0,0,0);
@@ -75,9 +142,12 @@ Vec3 GetCentroid(std::vector<Vec3> const & coords){
 
 Mat3 CovarianceMatrix(std::vector<Vec3> const & ps, std::vector<Vec3> const & qs,Vec3 cs,Vec3 ct, BasicANNkdTree const & qsKdTree){
 	Mat3 covariance = Mat3();
-
+    
 	for(int i = 0 ; i < ps.size(); i++){
-        covariance += Mat3::tensor(ps[i] -cs , (ps[qsKdTree.nearest(ps[i])] )- ct);
+        Vec3 outputPoint;
+        Vec3 outputNormal;
+        HPSS(ps[i] , outputPoint , outputNormal ,   positions , normals , kdtree ,0, 20, 20);
+        covariance += Mat3::tensor( outputPoint - ct,ps[i] -cs );
     }
 
     return covariance;
@@ -112,7 +182,6 @@ void ICP(std::vector<Vec3> const & ps , std::vector<Vec3> const & nps ,
         Vec3 cs2 = GetCentroid(positions3);
         Vec3 ct2 = GetCentroid(qs);
 
-// tester avec ps elle a dit ça devrait tjr être ps
         Mat3 Covariance = CovarianceMatrix(positions3,qs,cs2,ct2,qsKdTree);
 
         Covariance.setRotation();
@@ -123,13 +192,10 @@ void ICP(std::vector<Vec3> const & ps , std::vector<Vec3> const & nps ,
             positions3[i] = Covariance * positions3[i];
             positions3[i] += ct2;
         }
-        translation = ct2 -cs2;
+        
         std::cout << "\tICP , iteration " << it << " done" << std::endl;
     }
 }
-
-
-
 
 // ------------------------------------
 // i/o and some stuff
@@ -160,6 +226,7 @@ void loadPN (const std::string & filename , std::vector< Vec3 > & o_positions , 
     fclose (in);
     delete [] pn;
 }
+
 void savePN (const std::string & filename , std::vector< Vec3 > const & o_positions , std::vector< Vec3 > const & o_normals ) {
     if ( o_positions.size() != o_normals.size() ) {
         std::cout << "The pointset you are trying to save does not contain the same number of points and normals." << std::endl;
@@ -176,6 +243,7 @@ void savePN (const std::string & filename , std::vector< Vec3 > const & o_positi
     }
     fclose (outfile);
 }
+
 void scaleAndCenter( std::vector< Vec3 > & io_positions ) {
     Vec3 bboxMin( FLT_MAX , FLT_MAX , FLT_MAX );
     Vec3 bboxMax( FLT_MIN , FLT_MIN , FLT_MIN );
@@ -376,8 +444,6 @@ void draw () {
 
 void performICP( unsigned int nIterations ) {
     ICP(positions2 , normals2 , positions , normals , kdtree , ICProtation , ICPtranslation , nIterations );
-
-    
 }
 
 
@@ -408,7 +474,7 @@ void key (unsigned char keyPressed, int x, int y) {
         break;
 
     case 'i':
-        performICP(5);
+        performICP(10);
         break;
 
     case 'w':
@@ -499,15 +565,14 @@ int main (int argc, char ** argv) {
     // ICP :
     {
         // Load a first pointset, and build a kd-tree:
-        loadPN("pointsets/face.pn" , positions , normals);
+        loadPN("pointsets/dino.pn" , positions , normals);
         kdtree.build(positions);
-
-        // Load a second pointset :
-        loadPN("pointsets/face.pn" , positions2 , normals2);
+        positions2 = positions;
+        normals2 = normals;
 
         // Transform it slightly :
         srand(time(NULL));
-        Mat3 rotation = Mat3::RandRotation(M_PI / 3); // PLAY WITH THIS PARAMETER !!!!!!
+        Mat3 rotation = Mat3::RandRotation(); // PLAY WITH THIS PARAMETER !!!!!!
         Vec3 translation = Vec3( -1.0 + 2.0 * ((double)(rand()) / (double)(RAND_MAX)),-1.0 + 2.0 * ((double)(rand()) / (double)(RAND_MAX)),-1.0 + 2.0 * ((double)(rand()) / (double)(RAND_MAX)) );
         for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
             positions2[pIt] = rotation * positions2[pIt] + translation;
